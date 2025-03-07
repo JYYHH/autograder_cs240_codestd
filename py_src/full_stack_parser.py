@@ -1,11 +1,22 @@
+import io
 from pycparser import c_parser, c_ast
+from pcpp import Preprocessor
 
+# class for original source code, only to check for the constants
+class MyPreprocessor(Preprocessor):
+    # We override this function, to return None for all not found cases
+    def on_include_not_found(self, is_system_include, curdir, includepath, io, directive = None):
+        print(f"Warning: Skipping missing include file '{includepath}'")
+        return None  # Returning None tells pcpp to ignore it
+
+# class for preprocessed source code
 class VariableDefinitionChecker(c_ast.NodeVisitor):
-    def __init__(self):
+    def __init__(self, grader):
         self.errors = []
         self.in_global = True
         self.in_param = False # whether an argument for functions
         self.decl_lines = {}  # line -> list of variable names
+        self.grader = grader
 
     # visit the declaration for variables
     def visit_Decl(self, node):
@@ -20,19 +31,23 @@ class VariableDefinitionChecker(c_ast.NodeVisitor):
         # Rule I.A: Variable names must be all lowercase.
         if node.name != node.name.lower():
             self.errors.append(f"Line {node.coord.line}: Variable '{node.name}' should be all lowercase.")
+            self.grader.update_item("I.A")
 
         # Rule I.D: Global variables (i.e. at global scope and not function arguments) must start with "g_"
         if self.in_global and not self.in_param:
             if not node.name.startswith("g_"):
                 self.errors.append(f"Line {node.coord.line}: Global variable '{node.name}' should start with 'g_'.")
+                self.grader.update_item("I.D")
 
         # Rule XII.B: All variables (non-arguments) must be initialized.
         if not self.in_param and node.init is None:
             self.errors.append(f"Line {node.coord.line}: Variable '{node.name}' must be initialized at the time it is defined.")
+            self.grader.update_item("XII.B")
 
         # Rule XII.D: Variable length arrays are prohibited.
         if self._is_vla(node.type):
             self.errors.append(f"Line {node.coord.line}: Variable length arrays are prohibited.")
+            self.grader.update_item("XII.D")
 
         # Recursion check for children on AST
         self.generic_visit(node)
@@ -72,35 +87,43 @@ class VariableDefinitionChecker(c_ast.NodeVisitor):
             if len(names) > 1:
                 for name in names:
                     self.errors.append(f"Line {line}: More than one variable defined on a single line (variable '{name}').")
+                    self.grader.update_item("XII.A")
 
-def main():
-    code = r'''
-int g_temperature = 0;
-int roomTemp = 10, invalidCamelCase = 5;
-int g_pressure = 1013;
-int g_altitude;
+def whole_check(src_address: str, grader):
+    # read in the original source code
+    header_file = open(src_address + '.h', "r")
+    code_original = header_file.read()
+    code_original += '\n'
+    header_file.close()
+    src_file = open(src_address + '.c', "r")
+    code_original += src_file.read()
+    src_file.close()
 
-int g_arr[5] = {1,2,3,4,5};
-int g_vla[n] = {0};
+    # Step 1: preprocessing
+    pp = MyPreprocessor()
+    pp.parse(code_original)
 
-int function(int *a[3], char s[6]){
-    return 666;
-}
+    # Use a StringIO to capture the preprocessed output.
+    output = io.StringIO()
+    pp.write(output)
+    processed_code = output.getvalue()
+    # Rule I.C: All constants must be all uppercase, and contain at least two characters.
+    for name, macro in pp.macros.items():
+        if name not in {'__PCPP__', '__DATE__', '__TIME__', '__FILE__'} and not name.isupper():
+            print(f"Found invalid constant name {name}")
+            grader.update_item("I.C")
+    # # Whether to print the preprocessed code
+    # print(processed_code)
 
-int main() {
-    int localVar = 100;
-    int a, b = 0;
-    return 0;
-}
-    '''
+    # Step 2: source code body check
     parser = c_parser.CParser()
     try:
-        ast = parser.parse(code)
+        ast = parser.parse(processed_code)
     except Exception as e:
         print("Parsing error:", e)
         return
 
-    checker = VariableDefinitionChecker()
+    checker = VariableDefinitionChecker(grader)
     checker.visit(ast)
     checker.finalize()
 
@@ -110,6 +133,3 @@ int main() {
             print(err)
     else:
         print("No variable definition errors found.")
-
-if __name__ == "__main__":
-    main()

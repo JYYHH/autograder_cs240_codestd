@@ -1,0 +1,1 @@
+python ./py_src/grader.py ./test_c_src/test

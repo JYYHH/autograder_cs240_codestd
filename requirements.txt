@@ -1,0 +1,4 @@
+# ensure you are using Python 3.9
+pycparser == 2.21
+pandas == 2.1.1
+pcpp == 1.30
