@@ -28,10 +28,18 @@ class VariableDefinitionChecker(c_ast.NodeVisitor):
         self.errors = []
         self.in_global = True
         self.in_param = False # whether an argument for functions
+        self.type_def = False # whether in a type define
         self.decl_lines = {}  # line -> list of variable names
         self.grader = grader
         self.header_len = header_len
         self.var_name_dict_list = [] # act like a stack, and the top is the current compound's var_name_dict
+
+    # visit the type_def
+    def visit_Typedef(self, node):
+        old_status = self.type_def
+        self.type_def = True
+        self.generic_visit(node)
+        self.type_def = old_status
 
     # visit the compound
     def visit_Compound(self, node):
@@ -43,6 +51,7 @@ class VariableDefinitionChecker(c_ast.NodeVisitor):
         current_dict = self.var_name_dict_list[-1]
         for var_name in current_dict:
             item = current_dict[var_name]
+            # Rule XII.C: Variables should be placed in as local a scope as possible, as close to the first use as possible.
             if item[1] == False:
                 self.errors.append(f"Line {item[0]}: Variable '{var_name}' should be defined to the localest potision")
                 self.grader.update_item("XII.C")
@@ -52,7 +61,7 @@ class VariableDefinitionChecker(c_ast.NodeVisitor):
     def visit_ID(self, node):
         if len(self.var_name_dict_list):
             current_dict = self.var_name_dict_list[-1]
-            # visit a variable
+            # visit a variable, for Rule XII.C
             if node.name and node.name in current_dict:
                 current_dict[node.name][1] = True
         self.generic_visit(node)
@@ -65,7 +74,8 @@ class VariableDefinitionChecker(c_ast.NodeVisitor):
         # only consider things in .c file
         if node.coord.line > self.header_len:
             # save for Rule XII.C
-            if not self.in_global and not self.in_param:
+            if not self.in_global and not self.in_param and not self.type_def: 
+                # we don't check the latest usage for global vars, arguments and vars in a type_def
                 self.var_name_dict_list[-1].setdefault(node.name, [node.coord.line - self.header_len, False])
 
             # save for later Rule XII.A
@@ -84,7 +94,8 @@ class VariableDefinitionChecker(c_ast.NodeVisitor):
                     self.grader.update_item("I.D")
 
             # Rule XII.B: All variables (non-arguments) must be initialized.
-            if not self.in_param and node.init is None:
+            if not self.in_param and not self.type_def and node.init is None:
+                # we don't check for arguments and vars in a type_def, for initialization
                 self.errors.append(f"Line {node.coord.line - self.header_len}: Variable '{node.name}' must be initialized at the time it is defined.")
                 self.grader.update_item("XII.B")
 
