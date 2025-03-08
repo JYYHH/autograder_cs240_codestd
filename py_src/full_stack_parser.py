@@ -5,7 +5,7 @@ from pcpp import Preprocessor
 undefined_type = {
     'bool',
     'FILE',
-    'void',
+    # 'void',
 }
 
 # class for original source code, only to check for the constants
@@ -31,6 +31,31 @@ class VariableDefinitionChecker(c_ast.NodeVisitor):
         self.decl_lines = {}  # line -> list of variable names
         self.grader = grader
         self.header_len = header_len
+        self.var_name_dict_list = [] # act like a stack, and the top is the current compound's var_name_dict
+
+    # visit the compound
+    def visit_Compound(self, node):
+        # we are going to a new region, deeper
+        self.var_name_dict_list.append({})
+        self.generic_visit(node)
+        # At the end of this Compound, we check for all un-used ones 
+        # (in this level, since if they are used in a deeper compound that will not count)
+        current_dict = self.var_name_dict_list[-1]
+        for var_name in current_dict:
+            item = current_dict[var_name]
+            if item[1] == False:
+                self.errors.append(f"Line {item[0]}: Variable '{var_name}' should be defined to the localest potision")
+                self.grader.update_item("XII.C")
+        self.var_name_dict_list.pop()
+
+    # visit the ID
+    def visit_ID(self, node):
+        if len(self.var_name_dict_list):
+            current_dict = self.var_name_dict_list[-1]
+            # visit a variable
+            if node.name and node.name in current_dict:
+                current_dict[node.name][1] = True
+        self.generic_visit(node)
 
     # visit the declaration for variables
     def visit_Decl(self, node):
@@ -39,10 +64,13 @@ class VariableDefinitionChecker(c_ast.NodeVisitor):
 
         # only consider things in .c file
         if node.coord.line > self.header_len:
-            if not self.in_param and node.coord:
-                line = node.coord.line - self.header_len
-                # save for later Rule XII.A
-                self.decl_lines.setdefault(line, []).append(node.name)
+            # save for Rule XII.C
+            if not self.in_global and not self.in_param:
+                self.var_name_dict_list[-1].setdefault(node.name, [node.coord.line - self.header_len, False])
+
+            # save for later Rule XII.A
+            if not self.in_param:
+                self.decl_lines.setdefault(node.coord.line - self.header_len, []).append(node.name)
 
             # Rule I.A: Variable names must be all lowercase.
             if not node.name.islower():
@@ -65,7 +93,7 @@ class VariableDefinitionChecker(c_ast.NodeVisitor):
                 self.errors.append(f"Line {node.coord.line - self.header_len}: Variable length arrays are prohibited.")
                 self.grader.update_item("XII.D")
 
-        # Recursion check for children on AST
+        # Dive into the definition detail of this variable
         self.generic_visit(node)
 
     def _is_vla(self, type_node):
@@ -80,6 +108,8 @@ class VariableDefinitionChecker(c_ast.NodeVisitor):
         return False
 
     def visit_FuncDef(self, node):
+        # print(node) # Can observe the structure of AST (subtree) of this function
+
         # next we will not be in the Global Scope
         old_global = self.in_global
         self.in_global = False
@@ -106,6 +136,8 @@ class VariableDefinitionChecker(c_ast.NodeVisitor):
                     self.grader.update_item("XII.A")
 
 def whole_check(src_address: str, grader):
+    pass_test = True
+
     # read in the original source code
     header_file = open(src_address + '.h', "r")
     code_original = header_file.read()
@@ -129,6 +161,7 @@ def whole_check(src_address: str, grader):
         if name not in {'__PCPP__', '__DATE__', '__TIME__', '__FILE__'} and not name.isupper():
             print(f"Error: Found invalid constant name = {name}")
             grader.update_item("I.C")
+            pass_test = False
     # # Whether to print the preprocessed code
     # print(processed_code)
 
@@ -138,7 +171,8 @@ def whole_check(src_address: str, grader):
         ast = parser.parse(processed_code)
     except Exception as e:
         print("Parsing error:", e)
-        return
+        # mark a Parsing error
+        return 1
 
     checker = VariableDefinitionChecker(header_lines_number, grader)
     checker.visit(ast)
@@ -148,5 +182,8 @@ def whole_check(src_address: str, grader):
         print("Variable Definition Errors Found:")
         for err in checker.errors:
             print(err)
-    else:
-        print("No variable definition errors found.")
+    elif pass_test:
+        print("Pass the variable name and initialization check")
+
+    # normal return value
+    return 0

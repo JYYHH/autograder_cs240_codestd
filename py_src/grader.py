@@ -8,6 +8,7 @@ grade_items = {
     "I.D",
     "XII.A",
     "XII.B",
+    "XII.C",
     "XII.D",
 }
 def get_init_grade():
