@@ -30,6 +30,7 @@ class Grade():
                 self.subtract -= 2
 
 if __name__ == "__main__":
+    # TODO(JHY): modify to handling students' submissions later
     src_ = sys.argv[1]
     grader = Grade("jin511")
     whole_check(src_, grader)

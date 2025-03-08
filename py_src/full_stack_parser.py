@@ -127,7 +127,7 @@ def whole_check(src_address: str, grader):
     # Rule I.C: All constants must be all uppercase, and contain at least two characters.
     for name, macro in pp.macros.items():
         if name not in {'__PCPP__', '__DATE__', '__TIME__', '__FILE__'} and not name.isupper():
-            print(f"Found invalid constant name {name}")
+            print(f"Error: Found invalid constant name = {name}")
             grader.update_item("I.C")
     # # Whether to print the preprocessed code
     # print(processed_code)
