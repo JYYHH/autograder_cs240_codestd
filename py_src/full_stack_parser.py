@@ -14,9 +14,8 @@ def obj2id(li: list):
 
 # function to return a common prefix of 2 id list, corresponding to the LCA on a tree (each list is a path from root)
 def LCA_common_prefix(li1: list, li2: list):
-    # one is empty
-    if li1 == None or li2 == None:
-        return None
+    if li1 == None: # for the first time, it's used
+        return li2
     pos, len1, len2 = 0, len(li1), len(li2)
     while pos < len1 and pos < len2 and li1[pos] == li2[pos]:
         pos += 1
@@ -24,9 +23,7 @@ def LCA_common_prefix(li1: list, li2: list):
 
 # function to compare 2 id lists
 def is_equal(li1: list, li2: list):
-    if li1 == None and li2 == None:
-        return True 
-    if li1 == None or li2 == None:
+    if li1 == None: # for a var which is never used after the definition
         return False
     return li1 == li2
 
@@ -54,7 +51,9 @@ class VariableDefinitionChecker(c_ast.NodeVisitor):
         self.decl_lines = {}  # line -> list of variable names
         self.grader = grader
         self.header_len = header_len
-        self.var_name_dict_list = [] # act like a stack, and the top is the current compound's var_name_dict
+        self.var_name_dict_list = [{}] # act like a stack, and the top is the current compound's var_name_dict
+                                       # ensure it's not empty at any point
+        self.all_var_name_dict_list = [] # to save all the Compound's var dict, for the ref count not decrease to 0
         self.name_list = []          # store all the variables defined in user's code
 
     # visit the type_def
@@ -68,7 +67,9 @@ class VariableDefinitionChecker(c_ast.NodeVisitor):
     def visit_Compound(self, node):
         # we are going to a new region, deeper
         self.var_name_dict_list.append({})
+        self.all_var_name_dict_list.append(self.var_name_dict_list[-1]) # to increase the ref count
         self.generic_visit(node)
+        
         # At the end of this Compound, we check for all un-used ones 
         # (in this level, since if they are used in a deeper compound that will not count)
         current_dict = self.var_name_dict_list[-1]
@@ -78,9 +79,8 @@ class VariableDefinitionChecker(c_ast.NodeVisitor):
             if not is_equal(item[1], obj2id(self.var_name_dict_list)):
                 self.errors.append(f"Line {item[0]}: Variable '{var_name}' should be defined to the localest potision")
                 self.grader.update_item("XII.C")
-            # else:
-            #     print(f"Line {item[0]}: Variable '{var_name}' is good")
-            #     print(f"LCA = {item[1]}, while the current position on tree is {obj2id(self.var_name_dict_list)}")
+            # print(f"Line {item[0]}: Variable '{var_name}'")
+            # print(f"LCA = {item[1]}, while the current position on tree is {obj2id(self.var_name_dict_list)}")
         self.var_name_dict_list.pop()
 
     # visit the ID
@@ -89,6 +89,7 @@ class VariableDefinitionChecker(c_ast.NodeVisitor):
             for current_dict in self.var_name_dict_list[-1::-1]:
                 # visit a variable, for Rule XII.C
                 if node.name in current_dict:
+                    # print(f"Find {node.name}, with current stack = {obj2id(self.var_name_dict_list)}")
                     current_dict[node.name][1] = LCA_common_prefix(current_dict[node.name][1], obj2id(self.var_name_dict_list))
                     break
         self.generic_visit(node)
@@ -110,7 +111,7 @@ class VariableDefinitionChecker(c_ast.NodeVisitor):
             # save for Rule XII.C
             if not self.in_global and not self.in_param and not self.type_def: 
                 # we don't check the latest usage for global vars, arguments and vars in a type_def
-                self.var_name_dict_list[-1].setdefault(node.name, [node.coord.line - self.header_len, obj2id(self.var_name_dict_list)])
+                self.var_name_dict_list[-1].setdefault(node.name, [node.coord.line - self.header_len, None])
 
             # save for later Rule XII.A
             if not self.in_param:
