@@ -8,6 +8,28 @@ undefined_type = {
     # 'void',
 }
 
+# function transferring a list of objects to the list of the ids
+def obj2id(li: list):
+    return [id(x) for x in li]
+
+# function to return a common prefix of 2 id list, corresponding to the LCA on a tree (each list is a path from root)
+def LCA_common_prefix(li1: list, li2: list):
+    # one is empty
+    if li1 == None or li2 == None:
+        return None
+    pos, len1, len2 = 0, len(li1), len(li2)
+    while pos < len1 and pos < len2 and li1[pos] == li2[pos]:
+        pos += 1
+    return li1[: pos]
+
+# function to compare 2 id lists
+def is_equal(li1: list, li2: list):
+    if li1 == None and li2 == None:
+        return True 
+    if li1 == None or li2 == None:
+        return False
+    return li1 == li2
+
 # class for original source code, only to check for the constants
 class MyPreprocessor(Preprocessor):
     # We override this function, to handle undefined var type (since we do not look into other headers)
@@ -33,6 +55,7 @@ class VariableDefinitionChecker(c_ast.NodeVisitor):
         self.grader = grader
         self.header_len = header_len
         self.var_name_dict_list = [] # act like a stack, and the top is the current compound's var_name_dict
+        self.name_list = []          # store all the variables defined in user's code
 
     # visit the type_def
     def visit_Typedef(self, node):
@@ -52,18 +75,22 @@ class VariableDefinitionChecker(c_ast.NodeVisitor):
         for var_name in current_dict:
             item = current_dict[var_name]
             # Rule XII.C: Variables should be placed in as local a scope as possible, as close to the first use as possible.
-            if item[1] == False:
+            if not is_equal(item[1], obj2id(self.var_name_dict_list)):
                 self.errors.append(f"Line {item[0]}: Variable '{var_name}' should be defined to the localest potision")
                 self.grader.update_item("XII.C")
+            # else:
+            #     print(f"Line {item[0]}: Variable '{var_name}' is good")
+            #     print(f"LCA = {item[1]}, while the current position on tree is {obj2id(self.var_name_dict_list)}")
         self.var_name_dict_list.pop()
 
     # visit the ID
     def visit_ID(self, node):
-        if len(self.var_name_dict_list):
-            current_dict = self.var_name_dict_list[-1]
-            # visit a variable, for Rule XII.C
-            if node.name and node.name in current_dict:
-                current_dict[node.name][1] = True
+        if node.name:
+            for current_dict in self.var_name_dict_list[-1::-1]:
+                # visit a variable, for Rule XII.C
+                if node.name in current_dict:
+                    current_dict[node.name][1] = LCA_common_prefix(current_dict[node.name][1], obj2id(self.var_name_dict_list))
+                    break
         self.generic_visit(node)
 
     # visit the declaration for variables
@@ -73,10 +100,17 @@ class VariableDefinitionChecker(c_ast.NodeVisitor):
 
         # only consider things in .c file
         if node.coord.line > self.header_len:
+            # save for Rule I.B
+            if self.in_global:
+                if node.name.startswith("g_"):
+                    self.name_list.append(node.name[2: ])
+            else:
+                self.name_list.append(node.name)
+
             # save for Rule XII.C
             if not self.in_global and not self.in_param and not self.type_def: 
                 # we don't check the latest usage for global vars, arguments and vars in a type_def
-                self.var_name_dict_list[-1].setdefault(node.name, [node.coord.line - self.header_len, False])
+                self.var_name_dict_list[-1].setdefault(node.name, [node.coord.line - self.header_len, obj2id(self.var_name_dict_list)])
 
             # save for later Rule XII.A
             if not self.in_param:
@@ -146,7 +180,7 @@ class VariableDefinitionChecker(c_ast.NodeVisitor):
                     self.errors.append(f"Line {line}: More than one variable defined on a single line (variable '{name}').")
                     self.grader.update_item("XII.A")
 
-def whole_check(src_address: str, grader):
+def whole_check(src_address: str, grader, check_for_I_B = False):
     pass_test = True
 
     # read in the original source code
@@ -188,6 +222,34 @@ def whole_check(src_address: str, grader):
     checker = VariableDefinitionChecker(header_lines_number, grader)
     checker.visit(ast)
     checker.finalize()
+
+    if check_for_I_B:
+        # now it's still under developing...
+        # and we need llama3.2 for this part
+        from ollama import chat
+        from ollama import ChatResponse
+        response: ChatResponse = chat(model='llama3.2', messages=[
+                                        {
+                                            'role': 'user',
+                                            'content': '''
+                                            Assuming you are a code standard checker for C programming language source code,
+                                            and I'm going to give you a list of all the variable names, you should answer whether or not all the 
+                                            variable names are descriptive and meaningful, or not.
+                                            And you are expected to be more tolerant since some variables might be simplified.
+                                            Example: Variable such as "room_temperature" is 
+                                            descriptive and meaningful, but "i" is not.  An exception can
+                                            be made if "i" is used for loop counting, array indexing, etc.
+                                            An exception can also be made if the variable name is something
+                                            commonly used in a mathematical equation, and the code is
+                                            implementing that equation. For example "z" as a complex number.\n 
+                                            Next is the variable name list:\n
+                                            ''' + str(checker.name_list) + '''
+                                            \n\nNow it's your answer, yes or no (and give your explanation):
+                                            ''',
+                                        },
+                                        ]
+                                    )
+        print(response.message.content)
 
     if checker.errors:
         print("Variable Definition Errors Found:")

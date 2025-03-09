@@ -2,3 +2,4 @@
 pycparser == 2.21
 pandas == 2.1.1
 pcpp == 1.30
+ollama == 0.4.7

@@ -4,6 +4,7 @@ from full_stack_parser import whole_check
 
 grade_items = {
     "I.A",
+    "I.B",
     "I.C",
     "I.D",
     "XII.A",
@@ -34,5 +35,5 @@ if __name__ == "__main__":
     # TODO(JHY): modify to handling students' submissions later
     src_ = sys.argv[1]
     grader = Grade("jin511")
-    whole_check(src_, grader)
+    whole_check(src_, grader, False)
     print(grader.data)
