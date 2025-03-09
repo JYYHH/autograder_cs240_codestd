@@ -73,10 +73,10 @@ class VariableDefinitionChecker(c_ast.NodeVisitor):
         # At the end of this Compound, we check for all un-used ones 
         # (in this level, since if they are used in a deeper compound that will not count)
         current_dict = self.var_name_dict_list[-1]
-        for var_name in current_dict:
+        for var_name in current_dict: # check all the defined vars in the currect region
             item = current_dict[var_name]
             # Rule XII.C: Variables should be placed in as local a scope as possible, as close to the first use as possible.
-            if not is_equal(item[1], obj2id(self.var_name_dict_list)):
+            if not is_equal(item[1], obj2id(self.var_name_dict_list)): # the LCA of all used cases not equal to where it's defined...
                 self.errors.append(f"Line {item[0]}: Variable '{var_name}' should be defined to the localest potision")
                 self.grader.update_item("XII.C")
             # print(f"Line {item[0]}: Variable '{var_name}'")
@@ -88,8 +88,9 @@ class VariableDefinitionChecker(c_ast.NodeVisitor):
         if node.name:
             for current_dict in self.var_name_dict_list[-1::-1]:
                 # visit a variable, for Rule XII.C
-                if node.name in current_dict:
+                if node.name in current_dict: # here if a variable used before defined, we will ignore it, but in fact it will cause a compile error in practice
                     # print(f"Find {node.name}, with current stack = {obj2id(self.var_name_dict_list)}")
+                    # find where this variable is defined, and then update the LCA of this item
                     current_dict[node.name][1] = LCA_common_prefix(current_dict[node.name][1], obj2id(self.var_name_dict_list))
                     break
         self.generic_visit(node)
@@ -111,6 +112,7 @@ class VariableDefinitionChecker(c_ast.NodeVisitor):
             # save for Rule XII.C
             if not self.in_global and not self.in_param and not self.type_def: 
                 # we don't check the latest usage for global vars, arguments and vars in a type_def
+                # and a var define should be in the latest Compound region
                 self.var_name_dict_list[-1].setdefault(node.name, [node.coord.line - self.header_len, None])
 
             # save for later Rule XII.A
